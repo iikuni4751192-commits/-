@@ -79,6 +79,11 @@ def cmd_optimize(a):
           "\n   --split で学習期間と検証期間を分け、検証期間でも通用するかを確認してください。")
 
 
+def cmd_rulebook(a):
+    from .rulebook_cli import run
+    run(a)
+
+
 def cmd_fetch(a):
     df = D.fetch_yahoo(a.ticker, refresh=True)
     print(f"{a.ticker}: {len(df)}日分 {df.index[0]:%Y-%m-%d} 〜 {df.index[-1]:%Y-%m-%d}")
@@ -102,6 +107,13 @@ def main(argv=None):
     o.add_argument("--top", type=int, default=15, help="表示する上位件数")
     o.add_argument("--out", help="全結果CSVの出力先")
     o.set_defaults(func=cmd_optimize)
+
+    rb = sub.add_parser("rulebook", help="ルール表（Excel）のスイング売買ルールを検証")
+    _add_common(rb)
+    rb.add_argument("--breadth", help="騰落レシオCSV（日付, 騰落レシオ%%）")
+    rb.add_argument("--out", help="HTMLレポートの出力先")
+    rb.add_argument("--trades-csv", help="取引一覧（部分決済・R倍数つき）をCSV保存")
+    rb.set_defaults(func=cmd_rulebook)
 
     f = sub.add_parser("fetch", help="Yahoo Finance から価格データを取得・更新")
     f.add_argument("--ticker", default=D.DEFAULT_TICKER)

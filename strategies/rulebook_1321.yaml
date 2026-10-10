@@ -1,0 +1,19 @@
+# 「NF日経225（1321）テクニカル・スイング 投資ルール表」（Excel）の検証設定
+# 実行: python -m backtest225 rulebook strategies/rulebook_1321.yaml --breadth 騰落レシオ.csv
+name: ルール表 テクニカル・スイング（Setup A/B/C）
+data: {source: yahoo, ticker: 1321.T}
+period: {start: 2010-01-04}
+# breadth: ../data/breadth.csv    # 騰落レシオ(25日)のCSV。--breadth でも指定可
+params:                            # 省略時はルール表の初期値（1_指標設定・5_資金管理）
+  capital: 2400000                 # 5_資金管理 B4
+  risk_per_trade: 0.01             # B5
+  daily_loss_limit: 0.02           # B7
+  monthly_loss_limit: 0.06         # B8
+  stop_atr: 2.0                    # 1_指標設定 C21
+  trail_atr: 3.0                   # C22
+  partial_r: 2.0                   # C25
+  partial_ratio: 0.5               # C26
+  time_stop_ab: 15                 # C27
+  time_stop_c: 5                   # C28
+  commission_rate: 0.0             # 証券会社の手数料に合わせて変更
+  slippage_rate: 0.0005            # 成行・逆指値約定の滑り（指値は滑らない前提）

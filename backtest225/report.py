@@ -209,7 +209,8 @@ def _trades_table(result: Result) -> str:
     return f"<div class='scroll trades'><table><thead><tr>{head}</tr></thead><tbody>{''.join(body)}</tbody></table></div>"
 
 
-def render(result: Result, metrics: dict, cfg: dict, out_path: str | Path, rule_text: str = "") -> Path:
+def render(result: Result, metrics: dict, cfg: dict, out_path: str | Path, rule_text: str = "",
+           extra_html: str = "", extra_notes: list[str] | None = None) -> Path:
     eq = result.equity["equity"]
     bench = result.benchmark
     price = result.price
@@ -258,7 +259,7 @@ def render(result: Result, metrics: dict, cfg: dict, out_path: str | Path, rule_
         "売買単位: 2026/10/5より前は旧1口（＝現在の100口）、以降は10口として計算（lot_size: auto の場合）",
         "比較の「買い持ち」は初日の始値で買えるだけ買い、最後まで保有（同じ手数料・分配金条件、税金なし）",
         "過去の成績は将来の結果を保証しません。データは非公式ソースを含むため、重要な判断の前に一次情報で確認してください",
-    ] + list(result.notes)
+    ] + list(result.notes) + list(extra_notes or [])
     notes_html = "".join(f"<li>{html.escape(n)}</li>" for n in assumptions)
     warn = ""
     if s["n_trades"] < 30:
@@ -287,6 +288,7 @@ def render(result: Result, metrics: dict, cfg: dict, out_path: str | Path, rule_
 <div class=scroll>{_annual_table(eq, bench, result.initial_capital)}</div>
 <h2>月別リターン（%）</h2>
 <div class=scroll>{_monthly_table(eq, result.initial_capital)}</div>
+{extra_html}
 <h2>取引一覧（{len(result.trades)}件）</h2>
 {_trades_table(result)}
 <h2>ルール</h2>
