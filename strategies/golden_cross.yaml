@@ -1,0 +1,39 @@
+# 例1: ゴールデンクロスで買い、デッドクロスで売る（移動平均クロス）
+name: 移動平均クロス（25日/75日）
+
+data:
+  source: yahoo        # yahoo（自動取得） または csv
+  ticker: 1321.T
+  # csv: ../data/my_1321.csv   # source: csv のとき
+  dividends: builtin   # builtin(同梱の公表値) / yahoo / none / 分配金CSVのパス
+
+period:
+  start: 2010-01-01
+  end:                 # 空欄なら最新まで
+
+capital: 1000000       # 初期資金（円）
+
+params:                # 式の中で名前として使える
+  fast: 25
+  slow: 75
+
+rules:
+  entry: "cross_up(sma(close, fast), sma(close, slow))"
+  exit:  "cross_down(sma(close, fast), sma(close, slow))"
+  direction: long      # long（買い） / short（空売り）
+  weight: 1.0          # 資産の何割を投じるか
+
+risk:
+  stop_loss: 0.08      # 建値から8%下落で損切り（不要なら削除）
+
+execution:
+  timing: next_open    # シグナル翌日の始値で約定
+  commission_rate: 0.0 # ご利用の証券会社の手数料に合わせて設定
+  slippage_rate: 0.0005
+
+optimize:              # python -m backtest225 optimize で使う
+  metric: sharpe       # sharpe / cagr / total_return / profit_factor / max_drawdown
+  constraint: "fast < slow"
+  grid:
+    fast: [5, 10, 15, 25, 40]
+    slow: [50, 75, 100, 150, 200]

@@ -1,0 +1,8 @@
+# 例3: 単純な買い持ち（他ルールとの比較用）
+name: 買い持ち
+data: {source: yahoo, ticker: 1321.T, dividends: builtin}
+period: {start: 2010-01-01}
+capital: 1000000
+rules:
+  entry: "true"
+execution: {timing: next_open}

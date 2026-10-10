@@ -1,0 +1,19 @@
+# 例2: RSIの売られすぎで買い、戻ったら売る（逆張り）。利確・損切り・最大保有日数つき
+name: RSI逆張り
+data: {source: yahoo, ticker: 1321.T, dividends: builtin}
+period: {start: 2010-01-01}
+capital: 1000000
+params: {n: 14, buy_level: 30, sell_level: 60}
+rules:
+  entry: "rsi(close, n) < buy_level and close > sma(close, 200)"   # 長期上昇トレンド中の押し目のみ
+  exit:  "rsi(close, n) > sell_level"
+risk:
+  stop_loss: 0.07
+  take_profit: 0.10
+  max_hold_days: 20
+execution: {timing: next_open, commission_rate: 0.0, slippage_rate: 0.0005}
+optimize:
+  metric: profit_factor
+  grid:
+    buy_level: [20, 25, 30, 35]
+    sell_level: [50, 55, 60, 70]

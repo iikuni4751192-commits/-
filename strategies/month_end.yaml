@@ -1,0 +1,13 @@
+# 例4の設定ファイル: Pythonで書いたルール（month_end.py）を使う
+name: 月末買い・月初売り（Pythonルール）
+data: {source: yahoo, ticker: 1321.T, dividends: builtin}
+period: {start: 2010-01-01}
+capital: 1000000
+python: month_end.py       # この設定ファイルからの相対パス
+params: {hold_days: 3}     # PARAMS を上書き
+execution: {timing: next_open, commission_rate: 0.0, slippage_rate: 0.0005}
+optimize:
+  metric: sharpe
+  grid:
+    hold_days: [1, 2, 3, 4, 5]
+    trend: [0, 50, 200]
