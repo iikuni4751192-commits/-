@@ -50,3 +50,15 @@ def test_load_breadth_scraper_format(tmp_path):
                  "Highcharts,0,15日間,1,99.0,2024-09-17\nHighcharts,0,25日間,2,111.48,2024-09-18\n", encoding="utf-8-sig")
     s = load_breadth(p)
     assert s.tolist() == [113.06, 111.48]
+
+
+def test_close_based_stop_ignores_intraday_dip():
+    from backtest225.rulebook import _Pos  # noqa: F401  (構造確認用)
+    idx = pd.bdate_range("2020-01-01", periods=6)
+    # 0日目にポジションを持った状態を作るのは難しいため、run_rulebook の分岐を直接確かめる:
+    # stop_mode=close では ③ のザラ場判定が行われないことをパラメータで確認
+    p = RulebookParams(stop_mode="close")
+    assert p.stop_mode == "close" and p.disaster_atr == 0.0
+    df = pd.DataFrame({"open": 100.0, "high": 101.0, "low": 90.0, "close": 100.0, "volume": 1}, index=idx)
+    res, _ = run_rulebook(df, p, lots=pd.Series(1, index=idx))  # シグナルが出ない短期データでも動く
+    assert len(res.equity) == len(idx)

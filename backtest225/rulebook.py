@@ -87,6 +87,9 @@ class RulebookParams:
     slippage_rate: float = 0.0005  # 成行・逆指値の約定のみ（指値は滑らない）
     use_events: bool = True
     use_breadth: bool = True
+    # 損切りの執行方式（原因2の検証）: intraday=ザラ場の逆指値（ルール表X1・X2）/ close=終値が損切り価格以下なら翌寄りで決済
+    stop_mode: str = "intraday"
+    disaster_atr: float = 0.0  # stop_mode=close のとき、損切り価格−この倍率×ATR に置く緊急逆指値（0=置かない）
 
 
 @dataclass
@@ -216,6 +219,7 @@ class _Pos:
         self.halved_for_event = False
         self.peak = entry
         self.pending_exit = ""
+        self.atr = np.nan
 
 
 def run_rulebook(df: pd.DataFrame, p: RulebookParams, nt: pd.Series | None = None,
@@ -319,6 +323,7 @@ def run_rulebook(df: pd.DataFrame, p: RulebookParams, nt: pd.Series | None = Non
                         total_cost += comm
                         pos = _Pos(order["setup"], units, fill, order["stop"], i)
                         pos.peak = H[i]
+                        pos.atr = f["atr"].iloc[i - 1]
                         trade = RBTrade(direction="long", entry_date=d, entry_price=fill, units=units,
                                         setup=order["setup"], risk_per_unit=fill - order["stop"],
                                         initial_units=units, max_units=units, invested=units * fill)
@@ -328,11 +333,15 @@ def run_rulebook(df: pd.DataFrame, p: RulebookParams, nt: pd.Series | None = Non
 
         # ③ ザラ場：損切り・部分利確・Setup C 目標
         if pos:
-            stop_hit = L[i] <= pos.stop
-            if stop_hit:
-                gap = O[i] <= pos.stop  # 寄りで損切り価格を下回った（新規約定日も含む）
-                why = "建値撤退" if pos.stop >= pos.entry else "初期損切り"
-                sell(pos.units, O[i] if gap else pos.stop, i, why)
+            if p.stop_mode == "intraday":
+                level, why = pos.stop, ("建値撤退" if pos.stop >= pos.entry else "初期損切り")
+            elif p.disaster_atr > 0:
+                level, why = pos.stop - p.disaster_atr * pos.atr, "緊急損切り"
+            else:
+                level = None
+            if level is not None and L[i] <= level:
+                gap = O[i] <= level  # 寄りで損切り価格を下回った（新規約定日も含む）
+                sell(pos.units, O[i] if gap else level, i, why)
         if pos:
             if pos.setup == "C":
                 tgt = min(f["bb_mid"].iloc[i - 1], f["ma25"].iloc[i - 1])  # 前日終値時点の水準（先に届く方）
@@ -354,7 +363,9 @@ def run_rulebook(df: pd.DataFrame, p: RulebookParams, nt: pd.Series | None = Non
         if pos:
             held = i - pos.i
             atr = f["atr"].iloc[i]
-            if pos.setup in ("A", "B"):
+            if p.stop_mode == "close" and C[i] <= pos.stop:
+                pos.pending_exit = "建値撤退" if pos.stop >= pos.entry else "初期損切り"
+            elif pos.setup in ("A", "B"):
                 if C[i] < pos.peak - p.trail_atr * atr:
                     pos.pending_exit = "トレーリング"
                 elif C[i] < f["ma25"].iloc[i]:
