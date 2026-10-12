@@ -238,10 +238,13 @@ def run_rulebook(df: pd.DataFrame, p: RulebookParams, nt: pd.Series | None = Non
                  breadth: pd.Series | None = None, events: pd.DataFrame | None = None,
                  dividends: pd.Series | None = None, lots: pd.Series | None = None,
                  start: str | None = None, extra_equity: pd.Series | None = None,
-                 collateral: pd.Series | None = None, b_chase: pd.Series | None = None) -> tuple[Result, dict]:
+                 collateral: pd.Series | None = None, b_chase: pd.Series | None = None,
+                 hot_override: pd.Series | None = None) -> tuple[Result, dict]:
     """extra_equity: 口座のうちこのシミュレーション以外の資産の増減（買い持ち部分の評価額−初期資金）。
     口数計算・損失上限は「口座全体の資産」で行う。collateral: 委託保証金に算入できる代用評価額（掛目適用後）。"""
     f = compute_features(df, p, nt, breadth if p.use_breadth else None)
+    # hot_override: シグナル日ごとの True/False。True の日は騰落レシオ過熱（E5）でも新規を見送らない
+    f["hot_ok"] = hot_override.reindex(df.index).fillna(False).astype(bool) if hot_override is not None else False
     block = event_block_days(df.index, events) if p.use_events else pd.Series("", index=df.index)
     if start:
         keep = df.index >= pd.Timestamp(start)
@@ -527,7 +530,7 @@ def _signal(i, df, f, p: RulebookParams, streak: int, counts: dict):
 
     for setup, limit, stop in cands:  # A > B > C
         counts["signals"][setup] += 1
-        if setup in ("A", "B") and hot and p.breadth_hot_filter:
+        if setup in ("A", "B") and hot and p.breadth_hot_filter and not r["hot_ok"]:
             counts["skipped_breadth"] += 1
             _log_skip(counts, df.index[i], {"setup": setup, "limit": limit, "stop": stop}, "騰落レシオ過熱", signal_day=True)
             continue
