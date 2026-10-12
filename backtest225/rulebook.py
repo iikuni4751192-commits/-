@@ -90,6 +90,10 @@ class RulebookParams:
     event_entry_block: bool = True   # E8 イベント前営業日は新規見送り（原因4の検証で切替）
     event_halving: bool = True       # X10 イベント前営業日に建玉半減
     breadth_hot_filter: bool = True  # E5 騰落レシオ過熱で新規見送り
+    # 信用取引（買い持ち＋信用で上乗せ の検証用）。0 なら現物（金利なし）
+    margin_rate: float = 0.0          # 買方金利（年率）。楽天証券 制度・一般無期限とも 2.80%（2026年9月 信用取引ルール）
+    margin_requirement: float = 0.30  # 新規建に必要な委託保証金率（楽天証券 レバレッジ3.3倍＝30%）
+    maintenance_ratio: float = 0.20   # 最低維持率（これを下回ると追証。楽天証券 20%）
     use_breadth: bool = True
     # 損切りの執行方式（原因2の検証）: intraday=ザラ場の逆指値（ルール表X1・X2）/ close=終値が損切り価格以下なら翌寄りで決済
     stop_mode: str = "intraday"
@@ -233,7 +237,10 @@ class _Pos:
 def run_rulebook(df: pd.DataFrame, p: RulebookParams, nt: pd.Series | None = None,
                  breadth: pd.Series | None = None, events: pd.DataFrame | None = None,
                  dividends: pd.Series | None = None, lots: pd.Series | None = None,
-                 start: str | None = None) -> tuple[Result, dict]:
+                 start: str | None = None, extra_equity: pd.Series | None = None,
+                 collateral: pd.Series | None = None) -> tuple[Result, dict]:
+    """extra_equity: 口座のうちこのシミュレーション以外の資産の増減（買い持ち部分の評価額−初期資金）。
+    口数計算・損失上限は「口座全体の資産」で行う。collateral: 委託保証金に算入できる代用評価額（掛目適用後）。"""
     f = compute_features(df, p, nt, breadth if p.use_breadth else None)
     block = event_block_days(df.index, events) if p.use_events else pd.Series("", index=df.index)
     if start:
@@ -243,6 +250,10 @@ def run_rulebook(df: pd.DataFrame, p: RulebookParams, nt: pd.Series | None = Non
     div = (dividends.groupby(dividends.index).sum().reindex(df.index).fillna(0.0)
            if dividends is not None and len(dividends) else pd.Series(0.0, index=df.index))
 
+    ext = extra_equity.reindex(df.index).ffill().fillna(0.0).to_numpy() if extra_equity is not None else np.zeros(len(df))
+    coll = collateral.reindex(df.index).ffill().fillna(0.0).to_numpy() if collateral is not None else None
+    total_interest = 0.0
+    min_ratio, call_days, cap_limited = np.inf, 0, 0
     O, H, L, C = (df[k].to_numpy(float) for k in ("open", "high", "low", "close"))
     dates = df.index
     n = len(df)
@@ -255,7 +266,7 @@ def run_rulebook(df: pd.DataFrame, p: RulebookParams, nt: pd.Series | None = Non
     block_until = -1
     month_block = None
     month_start_eq = p.capital
-    prev_eq = p.capital
+    prev_eq = p.capital + (ext[0] if len(ext) else 0.0)
     total_cost = 0.0
     total_div = 0.0
     counts = {"signals": {"A": 0, "B": 0, "C": 0}, "skipped_stop_width": 0, "skipped_event": 0,
@@ -293,6 +304,13 @@ def run_rulebook(df: pd.DataFrame, p: RulebookParams, nt: pd.Series | None = Non
             cash += amt
             total_div += amt
             trade.pnl += amt
+        # 信用買いの金利（暦日ベース。土日祝も日割りで発生）
+        if pos and p.margin_rate and i > 0:
+            days = (d - dates[i - 1]).days
+            intr = pos.units * pos.entry * p.margin_rate * days / 365
+            cash -= intr
+            total_interest += intr
+            trade.pnl -= intr
 
         # ① 寄り：前日終値で決まった決済、イベント前の建玉半減
         if pos and pos.pending_exit:
@@ -316,18 +334,28 @@ def run_rulebook(df: pd.DataFrame, p: RulebookParams, nt: pd.Series | None = Non
                 if fill is None:
                     counts["unfilled"] += 1
                 else:
-                    equity = cash
+                    equity = cash + ext[i]
                     risk_yen = equity * p.risk_per_trade * order["factor"]
                     lot = lots.iloc[i]
                     per = fill - order["stop"]
                     units = int(risk_yen / per // lot * lot) if per > 0 else 0
                     cap = int(equity * p.position_cap / fill // lot * lot)
                     units = min(units, cap)
+                    if coll is not None:  # 委託保証金（代用評価額＋信用の実現損益）の範囲で建てる
+                        guarantee = coll[i] + (cash - p.capital)
+                        mcap = int(max(guarantee, 0) / (p.margin_requirement * fill) // lot * lot)
+                        if mcap < units:
+                            cap_limited += 1
+                            units = mcap
                     if units <= 0:
                         counts["skipped_size0"] += 1
                     else:
                         comm = units * fill * p.commission_rate
                         cash -= units * fill + comm
+                        if p.margin_rate:  # 両端入れのため建てた日の1日分
+                            intr = units * fill * p.margin_rate / 365
+                            cash -= intr
+                            total_interest += intr
                         total_cost += comm
                         pos = _Pos(order["setup"], units, fill, order["stop"], i)
                         pos.peak = H[i]
@@ -382,11 +410,18 @@ def run_rulebook(df: pd.DataFrame, p: RulebookParams, nt: pd.Series | None = Non
 
         # ⑤ 評価・損失上限
         eq = cash + (pos.units * C[i] if pos else 0.0)
-        if eq - prev_eq <= -p.daily_loss_limit * prev_eq:
+        if pos and coll is not None:
+            realized = cash + pos.units * pos.entry - p.capital
+            unreal = pos.units * (C[i] - pos.entry)
+            ratio = (coll[i] + realized + min(unreal, 0.0)) / (pos.units * pos.entry)
+            min_ratio = min(min_ratio, ratio)
+            call_days += ratio < p.maintenance_ratio
+        eq_total = eq + ext[i]
+        if eq_total - prev_eq <= -p.daily_loss_limit * prev_eq:
             block_until = i + 1
-        if eq - month_start_eq <= -p.monthly_loss_limit * month_start_eq:
+        if eq_total - month_start_eq <= -p.monthly_loss_limit * month_start_eq:
             month_block = d.to_period("M")
-        prev_eq = eq
+        prev_eq = eq_total
         rows.append((d, eq, cash, pos.units if pos else 0, C[i], (pos.units * C[i] / eq) if pos else 0.0))
 
         # ⑥ シグナル判定（建玉なしのときのみ）→ 翌日の指値
@@ -405,6 +440,8 @@ def run_rulebook(df: pd.DataFrame, p: RulebookParams, nt: pd.Series | None = Non
     res = Result(equity=eq, trades=trades, benchmark=bench, initial_capital=p.capital,
                  total_cost=total_cost, total_dividends=total_div)
     res.price = df
+    counts.update({"total_interest": total_interest, "margin_min_ratio": (min_ratio if np.isfinite(min_ratio) else np.nan),
+                   "margin_call_days": int(call_days), "margin_cap_limited": cap_limited})
     return res, counts
 
 

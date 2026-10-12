@@ -62,3 +62,15 @@ def test_close_based_stop_ignores_intraday_dip():
     df = pd.DataFrame({"open": 100.0, "high": 101.0, "low": 90.0, "close": 100.0, "volume": 1}, index=idx)
     res, _ = run_rulebook(df, p, lots=pd.Series(1, index=idx))  # シグナルが出ない短期データでも動く
     assert len(res.equity) == len(idx)
+
+
+def test_core_satellite_equals_buy_and_hold_without_signals():
+    from backtest225.core_satellite import run_core_satellite
+    idx = pd.bdate_range("2020-01-01", periods=30)
+    c = np.linspace(100, 110, 30)
+    df = pd.DataFrame({"open": c, "high": c, "low": c, "close": c, "volume": 1}, index=idx)
+    res, counts = run_core_satellite(df, RulebookParams(use_events=False, use_breadth=False, margin_rate=0.028),
+                                     lots=pd.Series(1, index=idx))
+    # 指標が揃わずシグナルが出ない期間では、口座全体＝買い持ち、金利0
+    assert np.allclose(res.equity["equity"].to_numpy(), res.benchmark.to_numpy())
+    assert counts["total_interest"] == 0
