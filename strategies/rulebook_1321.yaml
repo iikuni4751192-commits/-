@@ -18,7 +18,7 @@ params:                            # 省略時はルール表の初期値（1_�
   stop_min_atr: 2.0                # C23 損切り幅 下限（2026-10-12 原因1の修正で 1→2）
   stop_max_atr: 3.0                # C24 損切り幅 上限
   b_stop_atr: 2.0                  # 3_エントリー B4 ブレイク水準−この倍率×ATR（同 1→2）
-  a_exit_mode: ma25                # 4_決済損切り X6 Setup A のMA25割れ決済（ma25 / ma25_atr / swing_low）
+  a_exit_mode: swing_low           # 4_決済損切り X6 Setup A はスイング安値割れで決済（2026-10-12 原因3 案2。ma25 / ma25_atr / swing_low）
   stop_mode: close                 # 4_決済損切り X1・X2 終値で損切り判定→翌寄り決済（2026-10-12 原因2 案B）
   commission_rate: 0.0             # 証券会社の手数料に合わせて変更
   slippage_rate: 0.0005            # 成行・逆指値約定の滑り（指値は滑らない前提）
