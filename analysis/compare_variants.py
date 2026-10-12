@@ -33,11 +33,15 @@ def compare(variants: dict, breadth=ROOT / "data/cache/breadth_prime25.csv"):
             res, c = run_rulebook(d, RulebookParams(**{**base, **kw}), nt=nt, breadth=br, events=ev,
                                   dividends=div, lots=lots, start=start)
             m, sm = compute(res)["strategy"], summarize(res)
+            eq = res.equity
+            held = eq["units"] > 0
+            avg_pos = eq.loc[held, "exposure"].mean() * 100 if held.any() else 0.0
             t = sm.get("trades")
             stops = t[t.reason.isin(["初期損切り", "緊急損切り"])] if t is not None and len(t) else None
             worst = t["r"].min() if t is not None and len(t) else np.nan
             print(f"  {label}: 年率 {m['cagr']*100:5.2f}% 損益 {m['profit']:>9,.0f}円 最大DD {m['max_drawdown']*100:5.1f}% "
                   f"取引 {m['n_trades']:3d} 勝率 {m['win_rate']*100:4.0f}% PF {m['profit_factor']:.2f} 平均R {sm.get('avg_r', np.nan):5.2f} "
+                  f"| 保有日 {held.mean()*100:4.1f}% 保有時建玉 {avg_pos:4.1f}% 実質投資率 {eq['exposure'].mean()*100:4.1f}% "
                   f"| 損切り {0 if stops is None else len(stops)}件 平均 {np.nan if stops is None or not len(stops) else stops.r.mean():.2f}R 最悪 {worst:.2f}R")
             if t is not None and len(t):
                 for st, g in t.groupby("setup"):
@@ -58,6 +62,16 @@ CASES = {
         "原因3 案1 Setup A は MA25−1ATR 割れで決済": {"a_exit_mode": "ma25_atr", "a_exit_atr": 1.0},
         "原因3 案2 Setup A は MA25割れを使わずスイング安値割れで決済": {"a_exit_mode": "swing_low"},
     },
+}
+
+CASES["4"] = {
+    "原因4 基準（原因3修正後）": {},
+    "原因4 案1a イベント前の新規見送り(E8)をやめる": {"event_entry_block": False},
+    "原因4 案1b 騰落レシオ過熱の見送り(E5)をやめる": {"breadth_hot_filter": False},
+    "原因4 案1c E8・E5 とも やめる": {"event_entry_block": False, "breadth_hot_filter": False},
+    "原因4 案2 許容リスク 1%→2%": {"risk_per_trade": 0.02},
+    "原因4 案1a＋案2": {"event_entry_block": False, "risk_per_trade": 0.02},
+    "原因4 案1c＋案2": {"event_entry_block": False, "breadth_hot_filter": False, "risk_per_trade": 0.02},
 }
 
 if __name__ == "__main__":

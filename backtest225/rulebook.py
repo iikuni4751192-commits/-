@@ -86,6 +86,9 @@ class RulebookParams:
     commission_rate: float = 0.0
     slippage_rate: float = 0.0005  # 成行・逆指値の約定のみ（指値は滑らない）
     use_events: bool = True
+    event_entry_block: bool = True   # E8 イベント前営業日は新規見送り（原因4の検証で切替）
+    event_halving: bool = True       # X10 イベント前営業日に建玉半減
+    breadth_hot_filter: bool = True  # E5 騰落レシオ過熱で新規見送り
     use_breadth: bool = True
     # 損切りの執行方式（原因2の検証）: intraday=ザラ場の逆指値（ルール表X1・X2）/ close=終値が損切り価格以下なら翌寄りで決済
     stop_mode: str = "intraday"
@@ -293,7 +296,7 @@ def run_rulebook(df: pd.DataFrame, p: RulebookParams, nt: pd.Series | None = Non
         # ① 寄り：前日終値で決まった決済、イベント前の建玉半減
         if pos and pos.pending_exit:
             sell(pos.units, O[i], i, pos.pending_exit)
-        if pos and block.iloc[i] and not pos.halved_for_event and pos.stop < pos.entry:
+        if pos and p.event_halving and block.iloc[i] and not pos.halved_for_event and pos.stop < pos.entry:
             half = int(pos.units * 0.5 // lots.iloc[i] * lots.iloc[i])
             if half > 0:
                 pos.halved_for_event = True
@@ -302,7 +305,7 @@ def run_rulebook(df: pd.DataFrame, p: RulebookParams, nt: pd.Series | None = Non
         # ② 指値の約定判定
         held_from_before = pos is not None
         if order and pos is None:
-            if block.iloc[i]:
+            if p.event_entry_block and block.iloc[i]:
                 counts["skipped_event"] += 1
             elif i <= block_until or month_block == d.to_period("M"):
                 counts["skipped_loss_limit"] += 1
@@ -470,7 +473,7 @@ def _signal(i, df, f, p: RulebookParams, streak: int, counts: dict):
 
     for setup, limit, stop in cands:  # A > B > C
         counts["signals"][setup] += 1
-        if setup in ("A", "B") and hot:
+        if setup in ("A", "B") and hot and p.breadth_hot_filter:
             counts["skipped_breadth"] += 1
             continue
         width = (limit - stop) / atr
