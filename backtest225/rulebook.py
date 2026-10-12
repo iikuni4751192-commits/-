@@ -238,7 +238,7 @@ def run_rulebook(df: pd.DataFrame, p: RulebookParams, nt: pd.Series | None = Non
                  breadth: pd.Series | None = None, events: pd.DataFrame | None = None,
                  dividends: pd.Series | None = None, lots: pd.Series | None = None,
                  start: str | None = None, extra_equity: pd.Series | None = None,
-                 collateral: pd.Series | None = None) -> tuple[Result, dict]:
+                 collateral: pd.Series | None = None, b_chase: pd.Series | None = None) -> tuple[Result, dict]:
     """extra_equity: 口座のうちこのシミュレーション以外の資産の増減（買い持ち部分の評価額−初期資金）。
     口数計算・損失上限は「口座全体の資産」で行う。collateral: 委託保証金に算入できる代用評価額（掛目適用後）。"""
     f = compute_features(df, p, nt, breadth if p.use_breadth else None)
@@ -252,6 +252,8 @@ def run_rulebook(df: pd.DataFrame, p: RulebookParams, nt: pd.Series | None = Non
 
     ext = extra_equity.reindex(df.index).ffill().fillna(0.0).to_numpy() if extra_equity is not None else np.zeros(len(df))
     coll = collateral.reindex(df.index).ffill().fillna(0.0).to_numpy() if collateral is not None else None
+    # b_chase: 発注日ごとの True/False。True の日は Setup B の新規を指値でなく寄付成行で買う（寄り前に分かる情報で決める）
+    chase = b_chase.reindex(df.index).fillna(False).astype(bool).to_numpy() if b_chase is not None else np.zeros(len(df), bool)
     total_interest = 0.0
     min_ratio, call_days, cap_limited = np.inf, 0, 0
     O, H, L, C = (df[k].to_numpy(float) for k in ("open", "high", "low", "close"))
@@ -332,7 +334,11 @@ def run_rulebook(df: pd.DataFrame, p: RulebookParams, nt: pd.Series | None = Non
                 _log_skip(counts, d, order, "損失上限")
             else:
                 lim = order["limit"]
-                fill = O[i] if O[i] <= lim else (lim if L[i] <= lim else None)
+                if order["setup"] == "B" and chase[i]:
+                    fill = O[i] * (1 + p.slippage_rate)  # 寄付成行
+                    counts["chased"] = counts.get("chased", 0) + 1
+                else:
+                    fill = O[i] if O[i] <= lim else (lim if L[i] <= lim else None)
                 if fill is None:
                     counts["unfilled"] += 1
                     _log_skip(counts, d, order, "指値不成立")
