@@ -70,6 +70,7 @@ class RulebookParams:
     time_stop_ab: int = 15
     time_stop_c: int = 5
     near_atr: float = 0.5
+    b_limit_atr: float = 0.5  # Setup B の指値＝ブレイク水準＋この倍率×ATR（3_エントリー B3。原因5の検証）
     b_stop_atr: float = 1.0  # Setup B の損切り＝ブレイク水準−この倍率×ATR（3_エントリー B4）
     breakout_n: int = 20
     swing_n: int = 20
@@ -458,7 +459,7 @@ def _signal(i, df, f, p: RulebookParams, streak: int, counts: dict):
     # Setup B
     nt_ok = pd.isna(r["nt"]) or pd.isna(r["nt_ma"]) or r["nt"] >= r["nt_ma"]
     if r["env"] in ("上昇", "レンジ・移行") and nt_ok and c > r["cloud_top"] and c > r["hh_prev"]:
-        cands.append(("B", r["hh_prev"] + p.near_atr * atr, r["hh_prev"] - p.b_stop_atr * atr))
+        cands.append(("B", r["hh_prev"] + p.b_limit_atr * atr, r["hh_prev"] - p.b_stop_atr * atr))
     # Setup C（C1 が当日または前日に成立 + 当日のローソク足で確認）
     if pd.notna(breadth):
         prev = f.iloc[i - 1]
@@ -477,7 +478,7 @@ def _signal(i, df, f, p: RulebookParams, streak: int, counts: dict):
             counts["skipped_breadth"] += 1
             continue
         width = (limit - stop) / atr
-        if not (p.stop_min_atr <= width <= p.stop_max_atr):
+        if not (p.stop_min_atr - 1e-9 <= width <= p.stop_max_atr + 1e-9):  # 境界ちょうどは許容（浮動小数の誤差対策）
             counts["skipped_stop_width"] += 1
             continue
         fac = factor * (0.5 if setup == "C" else 1.0)

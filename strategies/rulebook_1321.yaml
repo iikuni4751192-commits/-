@@ -17,6 +17,7 @@ params:                            # 省略時はルール表の初期値（1_�
   time_stop_c: 5                   # C28
   stop_min_atr: 2.0                # C23 損切り幅 下限（2026-10-12 原因1の修正で 1→2）
   stop_max_atr: 3.0                # C24 損切り幅 上限
+  b_limit_atr: 0.5                 # 3_エントリー B3 指値＝ブレイク水準＋この倍率×ATR
   b_stop_atr: 2.0                  # 3_エントリー B4 ブレイク水準−この倍率×ATR（同 1→2）
   a_exit_mode: swing_low           # 4_決済損切り X6 Setup A はスイング安値割れで決済（2026-10-12 原因3 案2。ma25 / ma25_atr / swing_low）
   event_entry_block: false         # 2_環境認識 E8 イベント前の新規見送りを廃止（2026-10-12 原因4 案1a）。X10 の建玉半減は継続

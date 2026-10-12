@@ -74,6 +74,12 @@ CASES["4"] = {
     "原因4 案1c＋案2": {"event_entry_block": False, "breadth_hot_filter": False, "risk_per_trade": 0.02},
 }
 
+CASES["5"] = {
+    "原因5 基準（原因4修正後・Bの指値＝水準＋0.5ATR）": {},
+    "原因5 案 Bの指値＝水準＋0.25ATR": {"b_limit_atr": 0.25},
+    "原因5 案 Bの指値＝水準ちょうど（押し待ち）": {"b_limit_atr": 0.0},
+}
+
 if __name__ == "__main__":
     import argparse
     ap = argparse.ArgumentParser()
