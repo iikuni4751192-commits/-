@@ -38,3 +38,51 @@ def run_core_satellite(df, p: RulebookParams, lots: pd.Series, dividends: pd.Ser
     res.price = d
     res.satellite = sat
     return res, counts
+
+
+def run_levered_target(df, weight: pd.Series, capital: float, lots: pd.Series, dividends: pd.Series | None = None,
+                       start: str | None = None, margin_rate: float = 0.028, slippage: float = 0.0005,
+                       haircut: float = COLLATERAL_HAIRCUT, max_weight: float = 3.3):
+    """口座全体の目標建玉比率（資産に対する1321の建玉額、1.0=買い持ち、2.0=信用で2倍）に沿って売買する。
+
+    weight はその日の終値で決まり、翌営業日の始値で調整（値が変わった日だけ売買）。
+    資産を超える建玉は信用買い（借入残高に年率 margin_rate を暦日で日割り）。手数料0円（楽天証券のETF信用取引）。
+    保証金維持率は「資産×掛目 ÷ 借入残高」で近似して記録する。
+    """
+    d = df[df.index >= pd.Timestamp(start)] if start else df
+    w = weight.reindex(d.index).ffill().fillna(1.0).clip(0, max_weight).to_numpy()
+    lot = lots.reindex(d.index).ffill().bfill().astype(int).to_numpy()
+    div = (dividends.groupby(dividends.index).sum().reindex(d.index).fillna(0.0).to_numpy()
+           if dividends is not None and len(dividends) else [0.0] * len(d))
+    O, C = d["open"].to_numpy(float), d["close"].to_numpy(float)
+    cash, units, cur_w = capital, 0, None
+    interest_total, min_ratio, calls, trades = 0.0, float("inf"), 0, 0
+    rows = []
+    for i, day in enumerate(d.index):
+        if i > 0:
+            cash += units * div[i]
+            loan = max(-cash, 0.0)
+            intr = loan * margin_rate * (day - d.index[i - 1]).days / 365
+            cash -= intr
+            interest_total += intr
+        target = w[i - 1] if i > 0 else w[0]  # 初日は始値で初期比率に合わせる
+        if target != cur_w:
+            eq = cash + units * O[i]
+            new_units = int(target * eq / O[i] // lot[i] * lot[i])
+            delta = new_units - units
+            if delta:
+                px = O[i] * (1 + slippage * (1 if delta > 0 else -1))
+                cash -= delta * px
+                units = new_units
+                trades += 1
+            cur_w = target
+        eq = cash + units * C[i]
+        loan = max(-cash, 0.0)
+        if loan > 0:
+            ratio = eq * haircut / loan
+            min_ratio = min(min_ratio, ratio)
+            calls += ratio < 0.20
+        rows.append((day, eq, cash, units, C[i], units * C[i] / eq if eq else 0.0))
+    eqdf = pd.DataFrame(rows, columns=["date", "equity", "cash", "units", "close", "exposure"]).set_index("date")
+    return eqdf, {"total_interest": interest_total, "margin_min_ratio": min_ratio if min_ratio != float("inf") else float("nan"),
+                  "margin_call_days": calls, "rebalances": trades}
