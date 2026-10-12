@@ -3,7 +3,7 @@
 name: ルール表 テクニカル・スイング（Setup A/B/C）
 data: {source: yahoo, ticker: 1321.T}
 period: {start: 2010-01-04}
-# breadth: ../data/breadth.csv    # 騰落レシオ(25日)のCSV。--breadth でも指定可
+# breadth: ../data/cache/breadth_prime25.csv  # 騰落レシオ(25日)CSV。touraku_scraper.py の chart_series_raw.csv もそのまま可。--breadth でも指定可
 params:                            # 省略時はルール表の初期値（1_指標設定・5_資金管理）
   capital: 2400000                 # 5_資金管理 B4
   risk_per_trade: 0.01             # B5

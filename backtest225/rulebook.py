@@ -197,6 +197,8 @@ def load_breadth(path: str | Path) -> pd.Series:
         raise ValueError(f"騰落レシオCSVを読めません: {path}")
     cols = {c: str(c).strip().lower() for c in raw.columns}
     raw = raw.rename(columns=cols)
+    if {"series", "value", "date"} <= set(raw.columns):  # touraku_scraper.py の chart_series_raw.csv 形式
+        raw = raw[raw["series"] == "25日間"][["date", "value"]]
     dcol = next((c for c in raw.columns if c in ("date", "日付", "年月日")), raw.columns[0])
     vcol = next((c for c in raw.columns if c != dcol and any(k in c for k in ("騰落", "breadth", "ratio", "レシオ"))), raw.columns[1])
     s = pd.Series(pd.to_numeric(raw[vcol].astype(str).str.replace("%", "").str.replace(",", ""), errors="coerce").values,

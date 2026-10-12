@@ -42,3 +42,11 @@ def test_rulebook_runs_and_respects_lots():
     for t in res.trades:
         assert t.initial_units % 100 == 0
         assert t.risk_per_unit > 0
+
+
+def test_load_breadth_scraper_format(tmp_path):
+    p = tmp_path / "chart_series_raw.csv"
+    p.write_text("lib,chart,series,x_raw,value,date\nHighcharts,0,25日間,1,113.06,2024-09-17\n"
+                 "Highcharts,0,15日間,1,99.0,2024-09-17\nHighcharts,0,25日間,2,111.48,2024-09-18\n", encoding="utf-8-sig")
+    s = load_breadth(p)
+    assert s.tolist() == [113.06, 111.48]
