@@ -3,6 +3,8 @@
 name: ルール表 テクニカル・スイング（Setup A/B/C）
 data: {source: yahoo, ticker: 1321.T}
 period: {start: 2010-01-04}
+# 運用方式（2026-10-12 採用）: 口座資金で1321を買い持ち（コア）し、シグナル時だけ信用買いで上乗せ（サテライト）
+core_satellite: true
 # breadth: ../data/cache/breadth_prime25.csv  # 騰落レシオ(25日)CSV。touraku_scraper.py の chart_series_raw.csv もそのまま可。--breadth でも指定可
 params:                            # 省略時はルール表の初期値（1_指標設定・5_資金管理）
   capital: 2400000                 # 5_資金管理 B4
@@ -23,5 +25,6 @@ params:                            # 省略時はルール表の初期値（1_�
   event_entry_block: false         # 2_環境認識 E8 イベント前の新規見送りを廃止（2026-10-12 原因4 案1a）
   event_halving: false             # 4_決済損切り X10 イベント前の建玉半減を廃止（2026-10-12 原因6）
   stop_mode: close                 # 4_決済損切り X1・X2 終値で損切り判定→翌寄り決済（2026-10-12 原因2 案B）
+  margin_rate: 0.028               # 楽天証券 買方金利（制度・一般無期限）年2.80%（信用取引ルール 2026年9月）
   commission_rate: 0.0             # 証券会社の手数料に合わせて変更
   slippage_rate: 0.0005            # 成行・逆指値約定の滑り（指値は滑らない前提）

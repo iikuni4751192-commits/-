@@ -55,7 +55,16 @@ def run(a):
     dividends = D.to_ex_dates(D.load_dividends_csv(D.BUILTIN_DIVIDENDS[ticker]), df.index) if ticker in D.BUILTIN_DIVIDENDS else None
     lots = D.lot_size_series(df.index, ticker, cfg.get("lot_size", "auto"))
 
-    res, counts = run_rulebook(df, p, nt=nt, breadth=breadth, events=events, dividends=dividends, lots=lots, start=start)
+    if cfg.get("core_satellite"):
+        from .core_satellite import run_core_satellite
+        res, counts = run_core_satellite(df, p, lots=lots, dividends=dividends, start=start,
+                                         nt=nt, breadth=breadth, events=events)
+        notes.append(f"運用方式: 買い持ち（コア）＋シグナル時のみ信用買い（サテライト）。買方金利 年{p.margin_rate*100:.2f}%、"
+                     f"委託保証金率 {p.margin_requirement*100:.0f}%、代用掛目80%（楽天証券 信用取引ルール 2026年9月）。比較の買い持ち＝コア単独")
+        notes.append(f"信用金利 合計 {counts['total_interest']:,.0f}円 / 保証金維持率の最低 {counts['margin_min_ratio']*100:.0f}% / "
+                     f"追証（維持率{p.maintenance_ratio*100:.0f}%未満）の日数 {counts['margin_call_days']}")
+    else:
+        res, counts = run_rulebook(df, p, nt=nt, breadth=breadth, events=events, dividends=dividends, lots=lots, start=start)
     res.notes = notes
     m = compute(res)
     sm = summarize(res)
