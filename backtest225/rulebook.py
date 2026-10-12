@@ -326,13 +326,16 @@ def run_rulebook(df: pd.DataFrame, p: RulebookParams, nt: pd.Series | None = Non
         if order and pos is None:
             if p.event_entry_block and block.iloc[i]:
                 counts["skipped_event"] += 1
+                _log_skip(counts, d, order, "イベント前")
             elif i <= block_until or month_block == d.to_period("M"):
                 counts["skipped_loss_limit"] += 1
+                _log_skip(counts, d, order, "損失上限")
             else:
                 lim = order["limit"]
                 fill = O[i] if O[i] <= lim else (lim if L[i] <= lim else None)
                 if fill is None:
                     counts["unfilled"] += 1
+                    _log_skip(counts, d, order, "指値不成立")
                 else:
                     equity = cash + ext[i]
                     risk_yen = equity * p.risk_per_trade * order["factor"]
@@ -349,6 +352,7 @@ def run_rulebook(df: pd.DataFrame, p: RulebookParams, nt: pd.Series | None = Non
                             units = mcap
                     if units <= 0:
                         counts["skipped_size0"] += 1
+                        _log_skip(counts, d, order, "口数0")
                     else:
                         comm = units * fill * p.commission_rate
                         cash -= units * fill + comm
@@ -468,6 +472,12 @@ def _ab_exit(pos, p: RulebookParams, f, i, close, atr, held) -> str:
     return ""
 
 
+def _log_skip(counts: dict, date, order: dict, reason: str, signal_day: bool = False):
+    """見送ったシグナルの記録（分析用）。date はシグナル日（signal_day=True）または発注予定日。"""
+    counts.setdefault("skips", []).append({"date": date, "signal_day": signal_day, "setup": order["setup"],
+                                           "limit": float(order["limit"]), "stop": float(order["stop"]), "reason": reason})
+
+
 def _signal(i, df, f, p: RulebookParams, streak: int, counts: dict):
     r = f.iloc[i]
     o, h, l, c = (df[k].iloc[i] for k in ("open", "high", "low", "close"))
@@ -513,10 +523,13 @@ def _signal(i, df, f, p: RulebookParams, streak: int, counts: dict):
         counts["signals"][setup] += 1
         if setup in ("A", "B") and hot and p.breadth_hot_filter:
             counts["skipped_breadth"] += 1
+            _log_skip(counts, df.index[i], {"setup": setup, "limit": limit, "stop": stop}, "騰落レシオ過熱", signal_day=True)
             continue
         width = (limit - stop) / atr
         if not (p.stop_min_atr - 1e-9 <= width <= p.stop_max_atr + 1e-9):  # 境界ちょうどは許容（浮動小数の誤差対策）
             counts["skipped_stop_width"] += 1
+            _log_skip(counts, df.index[i], {"setup": setup, "limit": limit, "stop": stop},
+                      f"損切り幅{width:.2f}ATR（2〜3ATR外）", signal_day=True)
             continue
         fac = factor * (0.5 if setup == "C" else 1.0)
         return {"setup": setup, "limit": float(limit), "stop": float(stop), "factor": max(min(fac, 1.0), 0.5)}
