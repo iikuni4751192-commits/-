@@ -15,5 +15,8 @@ params:                            # 省略時はルール表の初期値（1_�
   partial_ratio: 0.5               # C26
   time_stop_ab: 15                 # C27
   time_stop_c: 5                   # C28
+  stop_min_atr: 1.0                # C23 損切り幅 下限
+  stop_max_atr: 3.0                # C24 損切り幅 上限
+  b_stop_atr: 1.0                  # 3_エントリー B4 ブレイク水準−この倍率×ATR
   commission_rate: 0.0             # 証券会社の手数料に合わせて変更
   slippage_rate: 0.0005            # 成行・逆指値約定の滑り（指値は滑らない前提）

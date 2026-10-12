@@ -70,6 +70,7 @@ class RulebookParams:
     time_stop_ab: int = 15
     time_stop_c: int = 5
     near_atr: float = 0.5
+    b_stop_atr: float = 1.0  # Setup B の損切り＝ブレイク水準−この倍率×ATR（3_エントリー B4）
     breakout_n: int = 20
     swing_n: int = 20
     # 5_資金管理
@@ -423,7 +424,7 @@ def _signal(i, df, f, p: RulebookParams, streak: int, counts: dict):
     # Setup B
     nt_ok = pd.isna(r["nt"]) or pd.isna(r["nt_ma"]) or r["nt"] >= r["nt_ma"]
     if r["env"] in ("上昇", "レンジ・移行") and nt_ok and c > r["cloud_top"] and c > r["hh_prev"]:
-        cands.append(("B", r["hh_prev"] + p.near_atr * atr, r["hh_prev"] - atr))
+        cands.append(("B", r["hh_prev"] + p.near_atr * atr, r["hh_prev"] - p.b_stop_atr * atr))
     # Setup C（C1 が当日または前日に成立 + 当日のローソク足で確認）
     if pd.notna(breadth):
         prev = f.iloc[i - 1]
