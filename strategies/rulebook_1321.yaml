@@ -6,7 +6,7 @@ period: {start: 2010-01-04}
 # breadth: ../data/cache/breadth_prime25.csv  # 騰落レシオ(25日)CSV。touraku_scraper.py の chart_series_raw.csv もそのまま可。--breadth でも指定可
 params:                            # 省略時はルール表の初期値（1_指標設定・5_資金管理）
   capital: 2400000                 # 5_資金管理 B4
-  risk_per_trade: 0.01             # B5
+  risk_per_trade: 0.02             # B5（2026-10-12 原因4 案2で 1%→2%）
   daily_loss_limit: 0.02           # B7
   monthly_loss_limit: 0.06         # B8
   stop_atr: 2.0                    # 1_指標設定 C21
@@ -19,6 +19,7 @@ params:                            # 省略時はルール表の初期値（1_�
   stop_max_atr: 3.0                # C24 損切り幅 上限
   b_stop_atr: 2.0                  # 3_エントリー B4 ブレイク水準−この倍率×ATR（同 1→2）
   a_exit_mode: swing_low           # 4_決済損切り X6 Setup A はスイング安値割れで決済（2026-10-12 原因3 案2。ma25 / ma25_atr / swing_low）
+  event_entry_block: false         # 2_環境認識 E8 イベント前の新規見送りを廃止（2026-10-12 原因4 案1a）。X10 の建玉半減は継続
   stop_mode: close                 # 4_決済損切り X1・X2 終値で損切り判定→翌寄り決済（2026-10-12 原因2 案B）
   commission_rate: 0.0             # 証券会社の手数料に合わせて変更
   slippage_rate: 0.0005            # 成行・逆指値約定の滑り（指値は滑らない前提）
