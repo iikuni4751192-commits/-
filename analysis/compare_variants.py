@@ -80,6 +80,11 @@ CASES["5"] = {
     "原因5 案 Bの指値＝水準ちょうど（押し待ち）": {"b_limit_atr": 0.0},
 }
 
+CASES["6"] = {
+    "原因6 基準（原因5修正後・X10 イベント前に建玉半減）": {},
+    "原因6 案 X10 をやめる（イベント前も建玉を維持）": {"event_halving": False},
+}
+
 if __name__ == "__main__":
     import argparse
     ap = argparse.ArgumentParser()
