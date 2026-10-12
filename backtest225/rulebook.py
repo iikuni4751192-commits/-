@@ -89,7 +89,11 @@ class RulebookParams:
     use_breadth: bool = True
     # 損切りの執行方式（原因2の検証）: intraday=ザラ場の逆指値（ルール表X1・X2）/ close=終値が損切り価格以下なら翌寄りで決済
     stop_mode: str = "intraday"
-    disaster_atr: float = 0.0  # stop_mode=close のとき、損切り価格−この倍率×ATR に置く緊急逆指値（0=置かない）
+    disaster_atr: float = 0.0
+    # Setup A の MA25割れ決済（4_決済損切り X6）の扱い（原因3の検証）
+    #   ma25: 終値がMA25割れ（ルール表どおり） / ma25_atr: 終値が MA25−a_exit_atr×ATR 割れ / swing_low: MA25割れを使わず、終値が直近スイング安値割れ
+    a_exit_mode: str = "ma25"
+    a_exit_atr: float = 1.0  # stop_mode=close のとき、損切り価格−この倍率×ATR に置く緊急逆指値（0=置かない）
 
 
 @dataclass
@@ -366,14 +370,7 @@ def run_rulebook(df: pd.DataFrame, p: RulebookParams, nt: pd.Series | None = Non
             if p.stop_mode == "close" and C[i] <= pos.stop:
                 pos.pending_exit = "建値撤退" if pos.stop >= pos.entry else "初期損切り"
             elif pos.setup in ("A", "B"):
-                if C[i] < pos.peak - p.trail_atr * atr:
-                    pos.pending_exit = "トレーリング"
-                elif C[i] < f["ma25"].iloc[i]:
-                    pos.pending_exit = "MA25割れ"
-                elif pos.setup == "B" and C[i] < f["cloud_top"].iloc[i]:
-                    pos.pending_exit = "雲上限割れ"
-                elif held >= p.time_stop_ab and not pos.reached1r:
-                    pos.pending_exit = "時間ストップ"
+                pos.pending_exit = _ab_exit(pos, p, f, i, C[i], atr, held)
             elif held >= p.time_stop_c:
                 pos.pending_exit = "時間ストップ"
             if pos.reached1r and pos.stop < pos.entry:
@@ -405,6 +402,29 @@ def run_rulebook(df: pd.DataFrame, p: RulebookParams, nt: pd.Series | None = Non
                  total_cost=total_cost, total_dividends=total_div)
     res.price = df
     return res, counts
+
+
+def _ab_exit(pos, p: RulebookParams, f, i, close, atr, held) -> str:
+    """Setup A/B の終値ベースの決済判定（X6・B4・X8）。該当なしは空文字。"""
+    if close < pos.peak - p.trail_atr * atr:
+        return "トレーリング"
+    ma25 = f["ma25"].iloc[i]
+    if pos.setup == "B" or p.a_exit_mode == "ma25":
+        if close < ma25:
+            return "MA25割れ"
+    elif p.a_exit_mode == "ma25_atr":
+        if close < ma25 - p.a_exit_atr * atr:
+            return "MA25−ATR割れ"
+    elif p.a_exit_mode == "swing_low":
+        if close < f["swing_lo"].iloc[i]:
+            return "スイング安値割れ"
+    else:
+        raise ValueError(f"a_exit_mode が不正です: {p.a_exit_mode}")
+    if pos.setup == "B" and close < f["cloud_top"].iloc[i]:
+        return "雲上限割れ"
+    if held >= p.time_stop_ab and not pos.reached1r:
+        return "時間ストップ"
+    return ""
 
 
 def _signal(i, df, f, p: RulebookParams, streak: int, counts: dict):
