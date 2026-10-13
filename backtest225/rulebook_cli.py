@@ -55,7 +55,17 @@ def run(a):
     dividends = D.to_ex_dates(D.load_dividends_csv(D.BUILTIN_DIVIDENDS[ticker]), df.index) if ticker in D.BUILTIN_DIVIDENDS else None
     lots = D.lot_size_series(df.index, ticker, cfg.get("lot_size", "auto"))
 
-    if cfg.get("core_satellite"):
+    if cfg.get("margin_core"):
+        from .core_satellite import run_margin_core_satellite
+        mc = cfg["margin_core"]
+        res, counts = run_margin_core_satellite(df, p, lots, dividends, start, core_yen=mc.get("core_yen", 1_000_000),
+                                                cap_mode=mc.get("cap_mode", "ratio"), cap_total_yen=mc.get("cap_total_yen", 2_250_000),
+                                                cap_ratio=mc.get("cap_ratio"), nt=nt, breadth=breadth, events=events)
+        notes.append(f"運用方式: コア{mc.get('core_yen', 1_000_000):,.0f}円分を信用買い（口数固定 {counts['core_units']:,}口）＋シグナル時のみ信用上乗せ。"
+                     f"建玉合計の上限 {mc.get('cap_mode', 'ratio')}（倍率 {mc.get('cap_ratio')}）。比較の買い持ち＝口座資金で現物を買い持ち")
+        notes.append(f"コアの金利 合計 {counts['core_interest']:,.0f}円 / 上乗せの金利 {counts['total_interest']:,.0f}円 / "
+                     f"保証金率の最低 {counts['min_guarantee_ratio']*100:.0f}% / 追証（20%未満）の日数 {counts['call_days']}")
+    elif cfg.get("core_satellite"):
         from .core_satellite import run_core_satellite
         res, counts = run_core_satellite(df, p, lots=lots, dividends=dividends, start=start,
                                          nt=nt, breadth=breadth, events=events)
