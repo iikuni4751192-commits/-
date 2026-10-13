@@ -1,0 +1,35 @@
+# 「NF日経225（1321）テクニカル・スイング 投資ルール表」（Excel）の検証設定
+# 実行: python -m backtest225 rulebook strategies/rulebook_1321.yaml --breadth 騰落レシオ.csv
+name: 改定ルールB（コア100万円を信用・口数固定、建玉合計＝口座資産×2.128倍）
+data: {source: yahoo, ticker: 1321.T}
+period: {start: 2010-01-04}
+# 運用方式（2026-10-12 採用）: 口座資金で1321を買い持ち（コア）し、シグナル時だけ信用買いで上乗せ（サテライト）
+# 2026-10-13 改定ルールB：コアの信用買いを解消するまでの暫定運用（解消後は rulebook_1321.yaml の①方式に戻す）
+margin_core:
+  core_yen: 1000000
+  cap_mode: ratio
+  cap_ratio: 2.128
+# breadth: ../data/cache/breadth_prime25.csv  # 騰落レシオ(25日)CSV。touraku_scraper.py の chart_series_raw.csv もそのまま可。--breadth でも指定可
+params:                            # 省略時はルール表の初期値（1_指標設定・5_資金管理）
+  capital: 1057500                 # 5_資金管理 B4（委託保証金の現金）
+  position_cap: 10.0               # B11 廃止（建玉合計の上限で管理）
+  risk_per_trade: 0.02             # B5（2026-10-12 原因4 案2で 1%→2%）
+  daily_loss_limit: 0.02           # B7
+  monthly_loss_limit: 0.06         # B8
+  stop_atr: 2.0                    # 1_指標設定 C21
+  trail_atr: 3.0                   # C22
+  partial_r: 2.0                   # C25
+  partial_ratio: 0.5               # C26
+  time_stop_ab: 15                 # C27
+  time_stop_c: 5                   # C28
+  stop_min_atr: 2.0                # C23 損切り幅 下限（2026-10-12 原因1の修正で 1→2）
+  stop_max_atr: 3.0                # C24 損切り幅 上限
+  b_limit_atr: 0.0                 # 3_エントリー B3 指値＝ブレイク水準＋この倍率×ATR（2026-10-12 原因5で 0.5→0 水準ちょうど）
+  b_stop_atr: 2.0                  # 3_エントリー B4 ブレイク水準−この倍率×ATR（同 1→2）
+  a_exit_mode: swing_low           # 4_決済損切り X6 Setup A はスイング安値割れで決済（2026-10-12 原因3 案2。ma25 / ma25_atr / swing_low）
+  event_entry_block: false         # 2_環境認識 E8 イベント前の新規見送りを廃止（2026-10-12 原因4 案1a）
+  event_halving: false             # 4_決済損切り X10 イベント前の建玉半減を廃止（2026-10-12 原因6）
+  stop_mode: close                 # 4_決済損切り X1・X2 終値で損切り判定→翌寄り決済（2026-10-12 原因2 案B）
+  margin_rate: 0.028               # 楽天証券 買方金利（制度・一般無期限）年2.80%（信用取引ルール 2026年9月）
+  commission_rate: 0.0             # 証券会社の手数料に合わせて変更
+  slippage_rate: 0.0005            # 成行・逆指値約定の滑り（指値は滑らない前提）
