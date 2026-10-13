@@ -124,3 +124,21 @@ def test_clean_fills_zero_open():
     df = make_df([100, 101, 102], opens=[100, 0, 102])
     out, notes = D.clean(df)
     assert out["open"].iloc[1] == 100 and notes
+
+
+def test_clean_fixes_isolated_scale_errors():
+    closes = [700, 705, 710, 7.2, 7.3, 715, 720, 718, 716, 719, 721, 722]
+    df = make_df(closes)
+    out, notes = D.clean(df)
+    assert out["close"].iloc[3] == pytest.approx(720) and out["close"].iloc[4] == pytest.approx(730)
+    assert any("桁が違う" in n for n in notes)
+
+
+def test_split_detection_ignores_single_bad_days():
+    # 調整済みデータに、分割日直後の2日だけ1/100の誤りが混ざっている場合は分割調整しない
+    idx = pd.bdate_range("2026-09-28", "2026-10-09")
+    closes = [682, 681, 696, 718, 710, 7.28, 7.35, 729.7, 719.5, 718.6]
+    df = make_df(closes)
+    df.index = idx
+    adj, notes = D.adjust_splits(df, D.KNOWN_SPLITS["1321.T"])
+    assert not notes and adj["close"].iloc[0] == 682

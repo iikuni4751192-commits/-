@@ -195,11 +195,12 @@ def adjust_splits(df: pd.DataFrame, splits: list[Split]) -> tuple[pd.DataFrame, 
     notes: list[str] = []
     df = df.copy()
     for sp in splits:
-        before = df.loc[df.index < sp.date, "close"]
-        after = df.loc[df.index >= sp.date, "close"]
+        # 分割日前後それぞれ5営業日の中央値で比べる（1日だけの異常値に引きずられないように）
+        before = df.loc[df.index < sp.date, "close"].tail(5)
+        after = df.loc[df.index >= sp.date, "close"].head(5)
         if before.empty or after.empty:
             continue
-        jump = before.iloc[-1] / after.iloc[0]
+        jump = before.median() / after.median()
         if jump > sp.ratio / 2:  # 分割前後で 1/ratio 近い急落 → 未調整と判断
             cols = [c for c in ["open", "high", "low", "close"] if c in df.columns]
             df.loc[df.index < sp.date, cols] /= sp.ratio
@@ -215,6 +216,20 @@ def clean(df: pd.DataFrame) -> tuple[pd.DataFrame, list[str]]:
     df = df.copy()
     df = df[~df.index.duplicated(keep="last")].sort_index()
     df = df[df["close"].notna() & (df["close"] > 0)]
+
+    # 前後の営業日から桁違い（約1/10・1/100・10倍・100倍）にずれた日を補正する（配信元の分割処理の誤り対策）
+    ref = df["close"].rolling(11, center=True, min_periods=3).median()
+    ratio = df["close"] / ref
+    mag = np.round(np.log10(ratio))
+    bad = (mag != 0) & ((np.log10(ratio) - mag).abs() < 0.15)
+    if bad.any():
+        k = 10.0 ** (-mag[bad])
+        for col in ["open", "high", "low", "close"]:
+            if col in df.columns:
+                df.loc[bad, col] = df.loc[bad, col] * k
+        if "volume" in df.columns:
+            df.loc[bad, "volume"] = df.loc[bad, "volume"] / k
+        notes.append("前後と桁が違う価格の日を補正しました: " + ", ".join(f"{d.date()}(×{v:g})" for d, v in k.items()))
 
     for c in ["open", "high", "low"]:
         if c not in df.columns:
