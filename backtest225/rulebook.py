@@ -239,7 +239,7 @@ def run_rulebook(df: pd.DataFrame, p: RulebookParams, nt: pd.Series | None = Non
                  dividends: pd.Series | None = None, lots: pd.Series | None = None,
                  start: str | None = None, extra_equity: pd.Series | None = None,
                  collateral: pd.Series | None = None, b_chase: pd.Series | None = None,
-                 hot_override: pd.Series | None = None) -> tuple[Result, dict]:
+                 hot_override: pd.Series | None = None, notional_cap: pd.Series | None = None) -> tuple[Result, dict]:
     """extra_equity: 口座のうちこのシミュレーション以外の資産の増減（買い持ち部分の評価額−初期資金）。
     口数計算・損失上限は「口座全体の資産」で行う。collateral: 委託保証金に算入できる代用評価額（掛目適用後）。"""
     f = compute_features(df, p, nt, breadth if p.use_breadth else None)
@@ -258,6 +258,8 @@ def run_rulebook(df: pd.DataFrame, p: RulebookParams, nt: pd.Series | None = Non
     # b_chase: 発注日ごとの True/False。True の日は Setup B の新規を指値でなく寄付成行で買う（寄り前に分かる情報で決める）
     chase = b_chase.reindex(df.index).fillna(False).astype(bool).to_numpy() if b_chase is not None else np.zeros(len(df), bool)
     total_interest = 0.0
+    # notional_cap: 日ごとの新規建玉金額の上限（円）。コアとの合計上限・信用建余力から外側で計算して渡す
+    ncap = notional_cap.reindex(df.index).ffill().fillna(np.inf).to_numpy() if notional_cap is not None else None
     min_ratio, call_days, cap_limited = np.inf, 0, 0
     O, H, L, C = (df[k].to_numpy(float) for k in ("open", "high", "low", "close"))
     dates = df.index
@@ -353,6 +355,11 @@ def run_rulebook(df: pd.DataFrame, p: RulebookParams, nt: pd.Series | None = Non
                     units = int(risk_yen / per // lot * lot) if per > 0 else 0
                     cap = int(equity * p.position_cap / fill // lot * lot)
                     units = min(units, cap)
+                    if ncap is not None:
+                        lim_units = int(max(ncap[i], 0) / fill // lot * lot)
+                        if lim_units < units:
+                            cap_limited += 1
+                            units = lim_units
                     if coll is not None:  # 委託保証金（代用評価額＋信用の実現損益）の範囲で建てる
                         guarantee = coll[i] + (cash - p.capital)
                         mcap = int(max(guarantee, 0) / (p.margin_requirement * fill) // lot * lot)
