@@ -122,3 +122,51 @@ YAML 側は `python: month_end.py` と書きます。**その日の終値まで�
 ```bash
 python -m pytest -q
 ```
+
+---
+
+# 週次銘柄評点ツール（weekpick）
+
+日本株を **金曜の終値で採点 → 翌週月曜（休場なら火曜）の寄付きで上位N銘柄を均等に買う → その週の最終営業日の引けで売る**、
+というやり方を過去データで検証し、週末に来週の候補を表示するツールです。何銘柄に分けるのが良いかも比べられます。
+
+```bash
+python -m weekpick universe                                 # JPXの上場銘柄一覧を取得（data/universe_jpx.csv）
+python -m weekpick fetch strategies/weekpick.yaml           # 対象銘柄の日足を取得（初回のみ数分）
+python -m weekpick fetch strategies/weekpick.yaml --refresh # 週末の更新（全銘柄取り直し）
+python -m weekpick factors strategies/weekpick.yaml         # 指標ごとの効き方（5分位・IC、学習/検証期間別）
+python -m weekpick backtest strategies/weekpick.yaml        # 保有銘柄数ごとの週次成績
+python -m weekpick backtest strategies/weekpick.yaml --holdings 5,10,20 --capital 3000000  # 100株単位・資金300万円
+python -m weekpick backtest strategies/weekpick.yaml --cost 0   # コストなしで比較
+python -m weekpick pick strategies/weekpick.yaml --top 20   # 最新の終値で採点した来週の候補
+```
+
+結果は `reports/` にCSVで保存されます（`*_holdings.csv` 要約、`*_weekly.csv` 毎週の損益と銘柄、`*_factors.csv`、`*_pick_日付.csv`）。
+
+## 設定（strategies/weekpick.yaml）
+
+- `universe`: `topix100` / `topix500`（既定。TOPIX Core30+Large70+Mid400）/ `topix1000` / `prime` / 銘柄一覧CSV（`ticker` または `code` 列）
+- `filters`: 直近20日の平均売買代金の下限（既定5億円）、株価の下限、上場からの営業日数
+- `weights`: 指標の重み（0=不使用、マイナス=逆向き）。各銘柄の指標を毎週「対象銘柄内の順位(0〜1)」にして重み付き平均した値がスコア
+
+| 指標 | 内容 |
+|---|---|
+| `reversal` | 直近5営業日の騰落率×(-1)。下げた銘柄ほど高い（短期リバーサル） |
+| `momentum` | 12か月前→1か月前の騰落率 |
+| `high52` | 終値 ÷ 過去250営業日の高値 |
+| `volume_surge` | 5日平均出来高 ÷ 60日平均出来高 |
+| `low_vol` | 60日の日次騰落率の標準偏差×(-1) |
+
+- `holdings`: 比べる保有銘柄数。`capital` を指定すると、1銘柄あたり「資金÷銘柄数」で100株を買える銘柄だけが対象になり、端数は現金
+- `execution`: 片道の手数料率と滑り。**毎週往復するため、往復コスト×52週がそのまま年率から引かれます**（片道0.1%なら年約10%）
+
+## 検証の前提と限界（重要）
+
+- **生存者バイアス**: 対象は「JPX一覧の取得時点（2026/9/30）で上場し、その時点で TOPIX500 に入っている銘柄」。過去に上場廃止・指数除外された銘柄は含まれないため、成績は実際より良く出やすい。
+- **価格**: Yahoo Finance（非公式）。終値・始値は株式分割調整済み、配当は `Adj Close`÷`Close` の変化から権利落ち日の値下がり分を損益に含める。
+  配信データの誤りへの対策として、(1) 出来高0の日の価格は使わない、(2) 前後5日が平穏で整数倍の段差は未調整の分割とみなして調整、
+  (3) 100円以上の株価が1日で3倍超/3分の1未満になった日は除外、(4) 配当込み係数の不自然な変化は無視。処理内容は実行時に表示されます。
+- **約定**: 寄付き・引けで必ずその価格で約定したとみなす（滑りは `slippage_rate` で概算）。ストップ高/安で約定しない場合は考慮していません。
+- **イベント**: 決算発表・権利落ちなど翌週の予定は考慮していません。`pick` の候補は発注前に各社IR・TDnetで確認してください。
+- **学習/検証**: `split` より前で重みを決め、後の期間で確かめます。後の期間の結果を見て重みを変えると、その期間も「学習」に使ったことになります。
+- 過去の成績は将来の成果を保証しません。

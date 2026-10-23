@@ -1,0 +1,31 @@
+# 週次銘柄評点: 金曜終値で採点 → 翌週月曜寄りで上位N銘柄を均等に買う → 金曜引けで売る
+name: 週次評点（日本株・買い）
+
+universe: topix500       # topix100 / topix500 / topix1000 / prime / ティッカー一覧CSVのパス
+
+period:
+  start: 2008-01-01
+  end:                   # 空欄なら最新まで
+
+split: 2018-01-01        # これより前で重みを決め、後で確かめる（学習/検証）
+
+filters:
+  min_turnover: 500000000  # 直近20日の平均売買代金（円）。5億円未満は除外
+  min_price: 0
+  min_history: 260         # 上場から260営業日未満は除外
+
+# 指標の重み（0で不使用。マイナスにすると逆向き）。内容は `python -m weekpick factors` で表示
+weights:
+  reversal: 1
+  momentum: 0
+  high52: 0
+  volume_surge: 0
+  low_vol: 0
+
+holdings: [1, 3, 5, 10, 20, 30]   # 比べる保有銘柄数
+
+# capital: 3000000       # 指定すると100株単位・資金内で買える銘柄だけで検証（端数は現金）
+
+execution:
+  commission_rate: 0.0   # ご利用の証券会社の手数料率（片道）
+  slippage_rate: 0.001   # 寄付き/引けでの不利な約定（片道）
