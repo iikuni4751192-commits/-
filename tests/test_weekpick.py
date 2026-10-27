@@ -122,3 +122,36 @@ def test_detect_unadjusted_split():
     assert np.isclose(out["close"].iloc[0], 11000 / 3) and out["volume"].iloc[0] == 3000
     same, none = adjust_unadjusted_splits(out)
     assert none == []
+
+
+def _timing_panel():
+    frames = make_frames(n_days=400, tickers=("A", "B", "C", "D"), seed=3)
+    # A: 週末に急落させて RSI(2)<10 を作る
+    f = frames["A"]
+    for i in range(300, 305):
+        f.iloc[i, :5] = f.iloc[i - 1]["close"] * 0.97 * np.array([1.0, 1.0, 0.99, 1.0, 1.0])
+        f.iloc[i, 3] = f.iloc[i - 1]["close"] * 0.97
+        f.iloc[i, 5] = f.iloc[i, 3]
+    return build_panel(frames)
+
+
+def test_timing_flags_and_history():
+    from weekpick import timing as T
+
+    p = _timing_panel()
+    sectors = pd.Series({"A": "x", "B": "x", "C": "y", "D": "y"})
+    ind = T.indicators(p, sectors)
+    C = p.close
+    d = C.index[310]
+    assert ind["flag_dev25"].at[d, "A"] == (C.at[d, "A"] / C["A"].rolling(25).mean().at[d] - 1 <= -0.10)
+    mkt = (C / C.shift(5) - 1).mean(axis=1)
+    assert ind["flag_mkt_drop"].at[d, "B"] == (mkt.at[d] <= -0.03)
+    h = T.history(p, ind, ["A"], start="2024-01-01")
+    assert (h["RSI2"] < T.RSI2_THRESHOLD).all() and len(h) >= 1
+    row = h.iloc[0]
+    assert row["参考点"] == T.score(row.to_dict())
+    last = float(p.close["A"].iloc[-1])
+    for entry in (last, float(p.low["A"].iloc[-10:].min()) * 0.9):  # 通常 / 直近安値を割って寄り付いた場合
+        lv = T.trade_levels(p, "A", entry=entry)
+        assert lv["A_損切り"] < entry and np.isclose(lv["A_利確"] - entry, 2 * (entry - lv["A_損切り"]))
+        assert np.isclose(entry - lv["B_損切り"], 2 * lv["ATR14"])
