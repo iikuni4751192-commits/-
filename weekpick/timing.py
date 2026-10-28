@@ -1,8 +1,9 @@
-"""特定銘柄の週末の買いタイミング判定（RSI(2)<10 と、同時に出ている条件）。
+"""特定銘柄の週末の買いタイミング判定（シグナルと、同時に出ている条件）。
 
 判定の型は weekpick の検証と同じ: 週の最終営業日の終値で判定 → 翌週初日の寄りで買い → その週の最終営業日の引けで売り。
-条件の選び方は 2008〜2026年の検証（ANA・あおぞら銀行・TOPIX500相当の全銘柄で向きがそろったもの）に基づく。
-いずれも統計的に確かとは言えないため、判定は「参考」として扱う。
+シグナルは SIGNALS（RSI(2)<10 / ウィリアムズ%R(14)<-80）から選び、同時に見る条件の組は
+CONDITIONS（RSI(2)・ANA/あおぞら銀行向け）または WR_CONDITIONS（%R・SOMPO 向け）を使う。
+条件の選び方は 2008〜2026年の検証に基づくが、いずれも統計的に確かとは言えないため、判定は「参考」として扱う。
 """
 from __future__ import annotations
 
@@ -17,6 +18,24 @@ from .factors import eligible
 
 TARGETS = {"9202.T": "ANAホールディングス", "8304.T": "あおぞら銀行"}
 RSI2_THRESHOLD = 10.0
+WR_THRESHOLD = -80.0
+
+
+@dataclass(frozen=True)
+class Signal:
+    key: str      # indicators() の値の名前
+    label: str
+    column: str   # 履歴・判定表での列名
+    threshold: float
+
+    def on(self, value) -> bool:
+        return bool(value < self.threshold)
+
+
+SIGNALS = {
+    "rsi2": Signal("rsi2", "RSI(2) < 10", "RSI2", RSI2_THRESHOLD),
+    "wr14": Signal("wr14", "ウィリアムズ%R(14) < -80", "%R14", WR_THRESHOLD),
+}
 
 
 @dataclass(frozen=True)
@@ -39,6 +58,46 @@ CONDITIONS = [
     Condition("down4", "4日以上連続で下落", "?", "あおぞらで83.8%。ANA・全銘柄では差なし"),
 ]
 
+# ウィリアムズ%R(14)<-80 と同時に見る条件（2008〜2026/10 の SOMPO・他の保険株・全銘柄の検証に基づく）
+WR_CONDITIONS = [
+    Condition("up3", "陽線3日連続", "+", "全銘柄で+6.0ポイント（前半+5.8・後半+5.9）。SOMPOは該当2回のみ"),
+    Condition("dev25", "25日線乖離率 ≤ -10%", "+", "全銘柄で+3.0ポイント（前半+2.1・後半+4.2）。SOMPOは10回で-4.2ポイント"),
+    Condition("sar_flip", "パラボリックSARが買い転換（週内）", "+", "全銘柄で+2.2ポイント（前半+3.3・後半+1.2）"),
+    Condition("mkt_drop", "市場全体（全銘柄平均）が週間-3%以下", "+", "全銘柄で+6.2ポイント。ただし効果はほぼ2018年以降"),
+    Condition("above75", "終値 > 75日線", "-", "他の保険株で-7.8ポイント、全銘柄で-1.2ポイント、SOMPOで-6.5ポイント"),
+    Condition("mkt_above75", "市場全体が75日線より上", "-", "全銘柄で-3.5ポイント（後半-6.9）。SOMPOでは差なし"),
+    Condition("shallow", "週間の下げが3%未満（浅い下げ）", "?", "SOMPOで71.7%（+11.8ポイント）。全銘柄では逆向き"),
+    Condition("mkt_up", "市場全体は週間で上昇（この銘柄だけ下落）", "?", "SOMPOで72.2%（+10.5ポイント）。全銘柄では逆向き"),
+    Condition("peer_wr", "同業種の他銘柄の半数以上も%R<-80（業種ぐるみの下げ）", "?", "他の保険株で+5.0ポイント。SOMPOは+1.2ポイント"),
+    Condition("solo_wr", "同業種の他銘柄で%R<-80は25%未満（この銘柄だけの下げ）", "?", "SOMPOで70.6%（34回）。回数が少ない"),
+]
+
+
+def _sar_bull_flip(h: np.ndarray, l: np.ndarray, af0: float = 0.02, step: float = 0.02, amax: float = 0.2) -> np.ndarray:
+    """パラボリックSAR（Wilder）が売り→買いに転換した日に True。"""
+    out = np.zeros(len(h), dtype=bool)
+    idx = np.where(np.isfinite(h) & np.isfinite(l))[0]
+    if len(idx) < 3:
+        return out
+    hh, ll = h[idx], l[idx]
+    bull, af, ep, sar = True, af0, hh[0], ll[0]
+    for i in range(1, len(idx)):
+        sar = sar + af * (ep - sar)
+        if bull:
+            sar = min(sar, ll[i - 1], ll[max(i - 2, 0)])
+            if ll[i] < sar:
+                bull, sar, ep, af = False, ep, ll[i], af0
+            elif hh[i] > ep:
+                ep, af = hh[i], min(af + step, amax)
+        else:
+            sar = max(sar, hh[i - 1], hh[max(i - 2, 0)])
+            if hh[i] > sar:
+                bull, sar, ep, af = True, ep, hh[i], af0
+                out[idx[i]] = True
+            elif ll[i] < ep:
+                ep, af = ll[i], min(af + step, amax)
+    return out
+
 
 def _rsi(x: pd.DataFrame, n: int) -> pd.DataFrame:
     d = x.diff()
@@ -48,7 +107,7 @@ def _rsi(x: pd.DataFrame, n: int) -> pd.DataFrame:
 
 def indicators(p: Panel, sectors: pd.Series) -> dict[str, pd.DataFrame]:
     """日次の指標（終値基準）と、CONDITIONS の各条件の真偽。sectors: ティッカー → 業種。"""
-    C = p.close
+    C, O, H, L = p.close, p.open, p.high, p.low
     sma = lambda n: C.rolling(n, min_periods=n).mean()
     m25, m75, m200 = sma(25), sma(75), sma(200)
     wret = C / C.shift(5) - 1
@@ -56,8 +115,20 @@ def indicators(p: Panel, sectors: pd.Series) -> dict[str, pd.DataFrame]:
     sec_mean = wret.T.groupby(sectors.reindex(C.columns)).transform("mean").T
     bcast = lambda s: pd.DataFrame(np.repeat(s.to_numpy()[:, None], C.shape[1], axis=1), index=C.index, columns=C.columns)
     down = C.diff() < 0
+    hh14, ll14 = H.rolling(14).max(), L.rolling(14).min()
+    wr14 = -100 * (hh14 - C) / (hh14 - ll14)
+    wr_on = (wr14 < WR_THRESHOLD).astype(float).where(wr14.notna())
+    sec = sectors.reindex(C.columns)
+    sec_sum = wr_on.T.groupby(sec).transform("sum").T
+    sec_cnt = wr_on.notna().astype(float).T.groupby(sec).transform("sum").T
+    peer_share = (sec_sum - wr_on.fillna(0)) / (sec_cnt - wr_on.notna()).replace(0, np.nan)  # 自分を除く同業種の割合
+    mlev = (1 + C.pct_change(fill_method=None).mean(axis=1).fillna(0)).cumprod()  # 全銘柄の日次平均騰落の累積
+    sar = pd.DataFrame({t: _sar_bull_flip(H[t].to_numpy(), L[t].to_numpy()) for t in C.columns}, index=C.index)
+    inweek = lambda df: df.astype(float).rolling(5, min_periods=1).max() > 0
     out = {
         "rsi2": _rsi(C, 2),
+        "wr14": wr14,
+        "peer_wr_share_pct": peer_share * 100,
         "rsi14": _rsi(C, 14),
         "dev25_pct": (C / m25 - 1) * 100,
         "wret_pct": wret * 100,
@@ -74,42 +145,51 @@ def indicators(p: Panel, sectors: pd.Series) -> dict[str, pd.DataFrame]:
         "mkt_up": bcast(mkt > 0),
         "sector_drop": wret - sec_mean <= -0.05,
         "down4": down & down.shift(1, fill_value=False) & down.shift(2, fill_value=False) & down.shift(3, fill_value=False),
+        "up3": (C > O) & (C.shift(1) > O.shift(1)) & (C.shift(2) > O.shift(2)),
+        "sar_flip": inweek(sar),
+        "above75": C > m75,
+        "mkt_above75": bcast(mlev > mlev.rolling(75).mean()),
+        "shallow": wret > -0.03,
+        "peer_wr": peer_share >= 0.5,
+        "solo_wr": peer_share < 0.25,
     }
     out.update({f"flag_{k}": v for k, v in flags.items()})
     return out
 
 
-def history(p: Panel, ind: dict[str, pd.DataFrame], tickers: list[str], start: str = "2008-01-01") -> pd.DataFrame:
-    """過去のシグナル週（判定日に RSI(2)<10）の一覧と、翌週の騰落率（配当込み・コスト控除前）。"""
+def history(p: Panel, ind: dict[str, pd.DataFrame], tickers: list[str], start: str = "2008-01-01",
+            signal: str = "rsi2", conditions: list[Condition] = CONDITIONS) -> pd.DataFrame:
+    """過去のシグナル週（判定日にシグナルあり）の一覧と、翌週の騰落率（配当込み・コスト控除前）。"""
+    sg = SIGNALS[signal]
     mask = eligible(p)
     ws = [w for w in weeks(p.close.index) if w.entry >= pd.Timestamp(start)]
     ret, _ = week_returns(p, ws, cost=0.0)
     rows = []
     for w in ws:
         for t in tickers:
-            r2 = ind["rsi2"].at[w.signal, t]
+            v = ind[sg.key].at[w.signal, t]
             r = ret.at[w.entry, t]
-            if not (r2 < RSI2_THRESHOLD) or pd.isna(r) or not mask.at[w.signal, t]:
+            if not sg.on(v) or pd.isna(r) or not mask.at[w.signal, t]:
                 continue
-            row = {"ticker": t, "判定日": w.signal, "買い": w.entry, "売り": w.exit, "RSI2": r2, "翌週騰落率": r}
-            row.update({c.key: bool(ind[f"flag_{c.key}"].at[w.signal, t]) for c in CONDITIONS})
-            row["参考点"] = score(row)
+            row = {"ticker": t, "判定日": w.signal, "買い": w.entry, "売り": w.exit, sg.column: v, "翌週騰落率": r}
+            row.update({c.key: bool(ind[f"flag_{c.key}"].at[w.signal, t]) for c in conditions})
+            row["参考点"] = score(row, conditions)
             rows.append(row)
     return pd.DataFrame(rows)
 
 
-def score(flags: dict) -> int:
+def score(flags: dict, conditions: list[Condition] = CONDITIONS) -> int:
     """「+」の条件数 - 「-」の条件数（「?」は数えない）。"""
-    return sum(bool(flags[c.key]) for c in CONDITIONS if c.side == "+") - sum(
-        bool(flags[c.key]) for c in CONDITIONS if c.side == "-")
+    return sum(bool(flags[c.key]) for c in conditions if c.side == "+") - sum(
+        bool(flags[c.key]) for c in conditions if c.side == "-")
 
 
-def conditional_table(hist: pd.DataFrame) -> pd.DataFrame:
+def conditional_table(hist: pd.DataFrame, conditions: list[Condition] = CONDITIONS) -> pd.DataFrame:
     """銘柄・条件ごとに、条件が出ていた/出ていなかったシグナル週の上昇確率。"""
     rows = []
     for t, g in hist.groupby("ticker"):
         up = g["翌週騰落率"] > 0
-        for c in CONDITIONS:
+        for c in conditions:
             on = g[c.key]
             rows.append({
                 "ticker": t, "条件": c.label, "向き": c.side,
@@ -119,21 +199,24 @@ def conditional_table(hist: pd.DataFrame) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
-def latest(ind: dict[str, pd.DataFrame], tickers: list[str], day: pd.Timestamp | None = None) -> pd.DataFrame:
+def latest(ind: dict[str, pd.DataFrame], tickers: list[str], day: pd.Timestamp | None = None,
+           signal: str = "rsi2", conditions: list[Condition] = CONDITIONS) -> pd.DataFrame:
     """判定日（既定は最新日）の状態。参考点 = 「+」の条件数 - 「-」の条件数（シグナルが出ていない銘柄は空欄）。"""
-    day = day or ind["rsi2"].index[-1]
+    sg = SIGNALS[signal]
+    day = day or ind[sg.key].index[-1]
     rows = []
     for t in tickers:
-        sig = bool(ind["rsi2"].at[day, t] < RSI2_THRESHOLD)
-        row = {"ticker": t, "判定日": day.date(), "RSI2": ind["rsi2"].at[day, t], "シグナル": sig,
-               "RSI14": ind["rsi14"].at[day, t], "25日線乖離%": ind["dev25_pct"].at[day, t],
+        sig = sg.on(ind[sg.key].at[day, t])
+        row = {"ticker": t, "判定日": day.date(), "RSI2": ind["rsi2"].at[day, t], "%R14": ind["wr14"].at[day, t],
+               "シグナル": sig, "RSI14": ind["rsi14"].at[day, t], "25日線乖離%": ind["dev25_pct"].at[day, t],
                "週間騰落%": ind["wret_pct"].at[day, t], "市場の週間騰落%": ind["mkt_wret_pct"].at[day, t],
-               "業種平均との差%": ind["sector_rel_pct"].at[day, t]}
-        flags = {c.key: bool(ind[f"flag_{c.key}"].at[day, t]) for c in CONDITIONS}
-        row.update({c.label: flags[c.key] for c in CONDITIONS})
-        row["+条件の数"] = sum(flags[c.key] for c in CONDITIONS if c.side == "+")
-        row["-条件の数"] = sum(flags[c.key] for c in CONDITIONS if c.side == "-")
-        row["参考点"] = score(flags) if sig else np.nan
+               "業種平均との差%": ind["sector_rel_pct"].at[day, t],
+               "同業種で%R<-80の割合%": ind["peer_wr_share_pct"].at[day, t]}
+        flags = {c.key: bool(ind[f"flag_{c.key}"].at[day, t]) for c in conditions}
+        row.update({c.label: flags[c.key] for c in conditions})
+        row["+条件の数"] = sum(flags[c.key] for c in conditions if c.side == "+")
+        row["-条件の数"] = sum(flags[c.key] for c in conditions if c.side == "-")
+        row["参考点"] = score(flags, conditions) if sig else np.nan
         rows.append(row)
     return pd.DataFrame(rows).set_index("ticker")
 
@@ -154,3 +237,41 @@ def trade_levels(p: Panel, ticker: str, entry: float | None = None, lookback: in
             "A_損切り": stop, "A_損切り%": -risk / entry * 100, "A_利確": entry + rr * risk, "A_利確%": rr * risk / entry * 100,
             "B_損切り": entry - risk_b, "B_損切り%": -risk_b / entry * 100,
             "B_利確": entry + rr * risk_b, "B_利確%": rr * risk_b / entry * 100}
+
+
+def condition_effect(p: Panel, ind: dict[str, pd.DataFrame], signal: str, conditions: list[Condition],
+                     tickers: list[str] | None = None, start: str = "2008-01-01", split: str = "2018-01-01") -> pd.DataFrame:
+    """シグナル週を条件の有無で分け、翌週の上昇確率を比べる（既定は全銘柄）。
+
+    差 = 条件あり − 条件なし（ポイント）。前半/後半は split の前後。z は2つの割合の差の検定（同じ週の銘柄は
+    独立でないため、市場全体の条件では z が大きく出すぎる点に注意）。
+    """
+    sg = SIGNALS[signal]
+    mask = eligible(p)
+    ws = [w for w in weeks(p.close.index) if w.entry >= pd.Timestamp(start)]
+    ret, _ = week_returns(p, ws, cost=0.0)
+    sig_days = [w.signal for w in ws]
+    cols = tickers or list(p.close.columns)
+    R = ret[cols].to_numpy()
+    ok = mask.loc[sig_days, cols].to_numpy() & np.isfinite(R)
+    E = (ind[sg.key].loc[sig_days, cols].to_numpy() < sg.threshold) & ok
+    UP = R > 0
+    late = np.array([w.entry >= pd.Timestamp(split) for w in ws])[:, None]
+    rows = []
+    for c in conditions:
+        X = ind[f"flag_{c.key}"].loc[sig_days, cols].fillna(False).to_numpy().astype(bool)
+        row = {"条件": c.label, "向き": c.side}
+        for lab, m in [("", np.ones_like(late)), ("前半_", ~late), ("後半_", late)]:
+            e = E & m
+            n1, n0 = int((e & X).sum()), int((e & ~X).sum())
+            k1, k0 = int((e & X & UP).sum()), int((e & ~X & UP).sum())
+            p1 = k1 / n1 if n1 else np.nan
+            p0 = k0 / n0 if n0 else np.nan
+            if lab == "":
+                pp = (k1 + k0) / max(n1 + n0, 1)
+                se = np.sqrt(pp * (1 - pp) * (1 / max(n1, 1) + 1 / max(n0, 1)))
+                row.update({"あり_回数": n1, "あり_上昇確率": p1, "なし_上昇確率": p0,
+                            "z": (p1 - p0) / se if n1 and n0 and se > 0 else np.nan})
+            row[f"{lab}差"] = (p1 - p0) * 100 if n1 and n0 else np.nan
+        rows.append(row)
+    return pd.DataFrame(rows)

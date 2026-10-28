@@ -155,3 +155,35 @@ def test_timing_flags_and_history():
         lv = T.trade_levels(p, "A", entry=entry)
         assert lv["A_損切り"] < entry and np.isclose(lv["A_利確"] - entry, 2 * (entry - lv["A_損切り"]))
         assert np.isclose(entry - lv["B_損切り"], 2 * lv["ATR14"])
+
+
+def test_timing_williams_r_signal_and_peer_share():
+    from weekpick import timing as T
+
+    p = _timing_panel()
+    sectors = pd.Series({"A": "x", "B": "x", "C": "x", "D": "y"})
+    ind = T.indicators(p, sectors)
+    H, L, C = p.high, p.low, p.close
+    d = C.index[304]
+    exp = -100 * (H["A"].rolling(14).max().at[d] - C.at[d, "A"]) / (H["A"].rolling(14).max().at[d] - L["A"].rolling(14).min().at[d])
+    assert np.isclose(ind["wr14"].at[d, "A"], exp)
+    # 同業種の他銘柄（B, C）のうち %R<-80 の割合（A 自身は数えない）
+    on = ind["wr14"].loc[d, ["B", "C"]] < -80
+    assert np.isclose(ind["peer_wr_share_pct"].at[d, "A"], on.mean() * 100)
+    assert np.isnan(ind["peer_wr_share_pct"].at[d, "D"])  # 同業種に他銘柄がいない
+    h = T.history(p, ind, ["A"], start="2024-01-01", signal="wr14", conditions=T.WR_CONDITIONS)
+    assert len(h) >= 1 and (h["%R14"] < -80).all()
+    assert set(c.key for c in T.WR_CONDITIONS) <= set(h.columns)
+    eff = T.condition_effect(p, ind, "wr14", T.WR_CONDITIONS, start="2024-01-01")
+    assert list(eff["条件"]) == [c.label for c in T.WR_CONDITIONS]
+    assert ((eff["あり_回数"] >= 0)).all()
+
+
+def test_sar_flip_detects_reversal():
+    from weekpick.timing import _sar_bull_flip
+
+    down = np.linspace(100, 80, 15)
+    up = np.linspace(80, 100, 15)
+    c = np.r_[down, up]
+    flip = _sar_bull_flip(c + 0.5, c - 0.5)
+    assert flip[15:].any() and not flip[:15].any()
