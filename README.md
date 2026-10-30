@@ -199,3 +199,9 @@ jupyter notebook notebooks/weekly_timing_ana_aozora.ipynb
 ノートブック冒頭の `TICKER` を変えれば他の銘柄にも使えますが、条件の説明文（分析時点の結果）は SOMPO と全銘柄の検証に基づいています。
 計算は `weekpick/timing.py` です（`SIGNALS` でシグナル、`CONDITIONS` / `WR_CONDITIONS` で同時に見る条件を切り替え）。
 
+### Google Colab 版（ファイル1つで動く版）
+
+`notebooks/weekly_signal_sompo_colab.ipynb` は、計算部分と銘柄一覧を中に埋め込んだ版です。リポジトリがなくても、Google Colab に
+このファイルをアップロードして「ランタイム → すべてのセルを実行」で動きます（毎回全銘柄の株価を取り直すため5〜10分）。
+`weekpick` を変更したときは `python tools/build_colab_notebook.py` で作り直してください。
+
